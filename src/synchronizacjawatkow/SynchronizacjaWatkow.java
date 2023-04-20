@@ -1,6 +1,9 @@
 package synchronizacjawatkow;
 
 import java.util.*;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -11,8 +14,11 @@ public class SynchronizacjaWatkow
     {
         Skrzynka skrzynka = new Skrzynka();
         
-        MaszynaProdukujacaButelki maszyna1 = new MaszynaProdukujacaButelki(skrzynka);
-        MaszynaZmieniającaSkrzynki maszyna2 = new MaszynaZmieniającaSkrzynki(skrzynka);
+        Lock lock = new ReentrantLock();
+        Condition oczekiwanie = lock.newCondition();
+        
+        MaszynaProdukujacaButelki maszyna1 = new MaszynaProdukujacaButelki(skrzynka, lock, oczekiwanie);
+        MaszynaZmieniającaSkrzynki maszyna2 = new MaszynaZmieniającaSkrzynki(skrzynka, lock, oczekiwanie);
         
         Thread produkcja = new Thread(maszyna1, "Producent");
         Thread zmieniacz = new Thread(maszyna2, "Zmieniacz");
@@ -24,14 +30,17 @@ public class SynchronizacjaWatkow
 
 class MaszynaProdukujacaButelki implements Runnable
 {
-    public MaszynaProdukujacaButelki(Skrzynka skrzynka)
+    public MaszynaProdukujacaButelki(Skrzynka skrzynka, Lock lock, Condition oczekiwanie)
     {
         this.skrzynka = skrzynka;
+        this.lock = lock;
+        this.oczekiwanie = oczekiwanie;
     }
     @Override
     public void run() 
     {
-        synchronized(skrzynka)
+        lock.lock();
+        try
         {
             System.out.println(Thread.currentThread().getName()+": Zaczynam produkować butelki.");
             while(true)
@@ -41,7 +50,8 @@ class MaszynaProdukujacaButelki implements Runnable
                     try 
                     {
                         System.out.println(Thread.currentThread().getName()+": Informuję, że trzeba wymienić skrzynkę.");
-                        skrzynka.wait();
+                         //skrzynka.wait(); - poprzednia metoda
+                        oczekiwanie.await();
                         System.out.println(Thread.currentThread().getName()+": Powróciłem do produkcji.");
                     } 
                     catch (InterruptedException ex) 
@@ -52,24 +62,35 @@ class MaszynaProdukujacaButelki implements Runnable
                 System.out.println(Thread.currentThread().getName()+": Wyprodukowałem "+(++i)+" Butelkę");
                 skrzynka.dodaj(new Butelka());
                 
-                skrzynka.notifyAll();
+                //skrzynka.notifyAll();
+                oczekiwanie.signalAll();
             }
+        }
+        finally
+        {
+            lock.unlock();
         }
     }
     private Skrzynka skrzynka;
+    private Lock lock;
+    private Condition oczekiwanie;
     private int i = 0;
 }
 
 class MaszynaZmieniającaSkrzynki implements Runnable
 {
-    public MaszynaZmieniającaSkrzynki(Skrzynka skrzynka)
+    public MaszynaZmieniającaSkrzynki(Skrzynka skrzynka, Lock lock, Condition oczekiwanie)
     {
         this.skrzynka = skrzynka;
+        this.lock = lock;
+        this.oczekiwanie = oczekiwanie;
     }
     @Override
     public void run() 
     {
-        synchronized(skrzynka)
+        //synchronised(skrzynka) - poprzednia metoda bez bloku finally
+        lock.lock();
+        try
         {
             System.out.println(Thread.currentThread().getName()+": Zaczynam przygotowywać się do zmiany skrzynki");
             while(true)
@@ -80,7 +101,8 @@ class MaszynaZmieniającaSkrzynki implements Runnable
                     try 
                     {
                         System.out.println(Thread.currentThread().getName()+": Informuję że zakończono zamianę.");
-                        skrzynka.wait();
+                        //skrzynka.wait(); - poprzednia metoda
+                        oczekiwanie.await();
                         System.out.println(Thread.currentThread().getName()+": Powróciłem do zamiany.");
                     } 
                     catch (InterruptedException ex) 
@@ -92,11 +114,18 @@ class MaszynaZmieniającaSkrzynki implements Runnable
                 skrzynka.zamiana();
                 skrzynka.pobierzIloscButelek();
                 
-                skrzynka.notifyAll();
+                //skrzynka.notifyAll();
+                oczekiwanie.signalAll();
             }
+        }
+        finally
+        {
+            lock.unlock();
         }
     }
     private Skrzynka skrzynka;
+    private Lock lock;
+    private Condition oczekiwanie;
 }
 
 class Skrzynka
